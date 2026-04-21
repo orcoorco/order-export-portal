@@ -26,3 +26,16 @@ Workflow finns i:
 Setup-guide:
 - `GITHUB_ACTIONS_SETUP.md`
 
+## HTML-sida för körning + nedladdning
+
+En enkel webbsida finns i:
+- `docs/index.html`
+
+Aktivera GitHub Pages:
+1. `Settings -> Pages`
+2. Source: `Deploy from a branch`
+3. Branch: `main` och folder: `/docs`
+
+Sidan kan sedan användas för att:
+- trigga ny export via workflow_dispatch
+- hämta senaste lyckade artifact
