@@ -21,6 +21,11 @@ Skapa:
 - `EXPORT_USER`
 - `EXPORT_PASS`
 
+Valfritt för e-post (utan SMTP, via Resend API):
+- `RESEND_API_KEY`
+- `RESEND_FROM`
+- `RESEND_TO`
+
 ## 3) Första körning
 
 Gå till:
@@ -46,6 +51,16 @@ Publik fil (Pages):
 Workflowen körs:
 - manuellt (`workflow_dispatch`)
 - automatiskt var 15:e minut (`cron`)
+
+## 6) E-post utan SMTP (valfritt)
+
+Om `RESEND_API_KEY`, `RESEND_FROM` och `RESEND_TO` finns:
+- workflowen skickar mejl när `report_latest.xls` har uppdaterats
+- mejlet innehåller länk till senaste filen och länk till körningen
+
+Tips:
+- `RESEND_TO` kan vara flera adresser separerade med kommatecken
+- exempel: `anna@bolag.se, bo@bolag.se`
 
 ## Viktigt
 

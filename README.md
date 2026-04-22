@@ -32,6 +32,9 @@ Workflow:
 Setup-guide:
 - `GITHUB_ACTIONS_SETUP.md`
 
+Valfritt:
+- e-postnotis utan SMTP via Resend API (`RESEND_API_KEY`, `RESEND_FROM`, `RESEND_TO`)
+
 ## Webbsida
 
 Sidan finns i:
