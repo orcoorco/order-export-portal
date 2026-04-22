@@ -22,8 +22,6 @@ Skapa:
 - `EXPORT_PASS`
 
 Valfritt för e-post (Gmail SMTP):
-- `SMTP_HOST` (`smtp.gmail.com`)
-- `SMTP_PORT` (`465`)
 - `SMTP_USER` (din Gmail-adress)
 - `SMTP_PASS` (Google App Password, inte vanliga lösenordet)
 - `MAIL_FROM` (avsändare, normalt samma som `SMTP_USER`)

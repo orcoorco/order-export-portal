@@ -40,7 +40,7 @@ Setup-guide:
 - `GITHUB_ACTIONS_SETUP.md`
 
 Valfritt:
-- e-postnotis via Gmail SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`)
+- e-postnotis via Gmail SMTP (`SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO`)
 
 ## Webbsida
 
