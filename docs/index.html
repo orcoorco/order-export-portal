@@ -108,13 +108,68 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 0.86rem;
     }
+
+    .hidden { display: none; }
+
+    .gate-wrap {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .gate {
+      width: min(420px, 92vw);
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 8px 20px rgba(18, 32, 43, 0.06);
+    }
+
+    .gate h2 {
+      margin: 0 0 10px;
+      font-size: 1.25rem;
+    }
+
+    .gate p {
+      margin: 0 0 12px;
+    }
+
+    .input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 1rem;
+      margin-bottom: 10px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    #authMessage {
+      min-height: 1.2em;
+      color: #a2192b;
+      font-size: 0.9rem;
+      margin-top: 6px;
+    }
   </style>
 </head>
 <body>
-  <main>
+  <div id="authGateWrap" class="gate-wrap">
+    <section class="gate">
+      <h2>Lösenord krävs</h2>
+      <p>Ange lösenord för att komma till nedladdningen.</p>
+      <input class="input" id="passwordInput" type="password" autocomplete="current-password" placeholder="Lösenord">
+      <button class="btn btn-primary" id="loginBtn" type="button">Logga in</button>
+      <div id="authMessage"></div>
+    </section>
+  </div>
+
+  <main id="appMain" class="hidden">
     <section class="card">
       <h1>Export Portal</h1>
-      <p>Senaste filen byggs automatiskt var 15:e minut. Ingen inloggning eller token krävs på sidan.</p>
+      <p>Senaste filen byggs automatiskt var 15:e minut.</p>
       <div class="actions">
         <a class="btn btn-primary" href="./latest/report_latest.xls" download>
           Ladda ner senaste XLS
@@ -125,7 +180,7 @@
       </div>
       <div class="meta">
         Fil: <span class="mono">docs/latest/report_latest.xls</span><br>
-        Notering: filen är publik.
+        Notering: kräver lokal inloggning i webbläsaren.
       </div>
     </section>
 
@@ -136,6 +191,54 @@
   </main>
 
   <script>
+    const AUTH_PASSWORD = "cykelkopp";
+    const AUTH_STORAGE_KEY = "export_portal_auth_v1";
+    const AUTH_PERSIST_MS = 1000 * 60 * 60 * 24 * 365 * 20; // 20 years
+
+    function saveAuth() {
+      const payload = {
+        ok: true,
+        expiresAt: Date.now() + AUTH_PERSIST_MS
+      };
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload));
+    }
+
+    function hasAuth() {
+      try {
+        const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        return Boolean(parsed && parsed.ok && Number(parsed.expiresAt) > Date.now());
+      } catch {
+        return false;
+      }
+    }
+
+    function showApp() {
+      document.getElementById("authGateWrap").classList.add("hidden");
+      document.getElementById("appMain").classList.remove("hidden");
+      loadStatus();
+    }
+
+    function showGate() {
+      document.getElementById("authGateWrap").classList.remove("hidden");
+      document.getElementById("appMain").classList.add("hidden");
+      document.getElementById("passwordInput").focus();
+    }
+
+    function tryLogin() {
+      const input = document.getElementById("passwordInput");
+      const msg = document.getElementById("authMessage");
+      if (input.value === AUTH_PASSWORD) {
+        saveAuth();
+        msg.textContent = "";
+        input.value = "";
+        showApp();
+        return;
+      }
+      msg.textContent = "Fel lösenord.";
+    }
+
     async function loadStatus() {
       const statusEl = document.getElementById("status");
       const fileUrl = "./latest/report_latest.xls";
@@ -172,7 +275,16 @@
     }
 
     document.getElementById("refreshBtn").addEventListener("click", loadStatus);
-    loadStatus();
+    document.getElementById("loginBtn").addEventListener("click", tryLogin);
+    document.getElementById("passwordInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") tryLogin();
+    });
+
+    if (hasAuth()) {
+      showApp();
+    } else {
+      showGate();
+    }
   </script>
 </body>
 </html>
