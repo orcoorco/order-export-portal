@@ -20,11 +20,15 @@ on:
         default: "0"
         type: string
   schedule:
-    # Runs Tuesdays at 06:17 and 07:17 UTC; gate below ensures only
-    # last Tuesday around 08:xx Europe/Stockholm executes.
-    # Avoiding :00 lowers risk of dropped scheduled runs during peak load.
-    - cron: "17 6 * * 2"
-    - cron: "17 7 * * 2"
+    # Two attempts to reduce risk of dropped scheduled runs.
+    - cron: "5 8 * * 2"
+      timezone: "Europe/Stockholm"
+    - cron: "25 8 * * 2"
+      timezone: "Europe/Stockholm"
+
+concurrency:
+  group: data-export-monthly
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -47,7 +51,7 @@ jobs:
       EXPORT_VIEW: ${{ github.event.inputs.view }}
       EXPORT_MAX_ORDERS: ${{ github.event.inputs.max_orders }}
     steps:
-      - name: Decide schedule window (last Tuesday 08:00 Europe/Stockholm)
+      - name: Decide schedule window (last Tuesday each month, Stockholm time)
         id: schedule_guard
         env:
           TZ: Europe/Stockholm
@@ -61,7 +65,6 @@ jobs:
           YEAR="$(date +%Y)"
           MONTH="$(date +%m)"
           TODAY_DAY=$((10#$(date +%d)))
-          CURRENT_HOUR=$((10#$(date +%H)))
 
           LAST_DAY=$((10#$(date -d "${YEAR}-${MONTH}-01 +1 month -1 day" +%d)))
           LAST_DAY_WEEKDAY=$((10#$(date -d "${YEAR}-${MONTH}-${LAST_DAY} 12:00:00" +%u)))
@@ -69,45 +72,81 @@ jobs:
           OFFSET=$(((LAST_DAY_WEEKDAY - 2 + 7) % 7))
           LAST_TUESDAY=$((LAST_DAY - OFFSET))
 
-          if [ "${TODAY_DAY}" -eq "${LAST_TUESDAY}" ] && [ "${CURRENT_HOUR}" -eq 8 ]; then
+          if [ "${TODAY_DAY}" -eq "${LAST_TUESDAY}" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "Scheduled window matched (last Tuesday 08:00 Stockholm)."
+            echo "Scheduled window matched (last Tuesday, Stockholm time)."
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping scheduled run. Today=${TODAY_DAY}, last_tuesday=${LAST_TUESDAY}, hour=${CURRENT_HOUR}"
+            echo "Skipping scheduled run. Today=${TODAY_DAY}, last_tuesday=${LAST_TUESDAY}"
           fi
 
       - name: Skip outside monthly execution window
         if: ${{ steps.schedule_guard.outputs.run != 'true' }}
         run: |
-          echo "No export this run. Window is last Tuesday each month at 08:00 Europe/Stockholm."
+          echo "No export this run. Window is last Tuesday each month at 08:05 and 08:25 Europe/Stockholm."
 
       - name: Checkout repository
         if: ${{ steps.schedule_guard.outputs.run == 'true' }}
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Prevent duplicate monthly send
+        id: monthly_lock
         if: ${{ steps.schedule_guard.outputs.run == 'true' }}
+        env:
+          TZ: Europe/Stockholm
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Manual trigger -> monthly lock bypassed."
+            exit 0
+          fi
+
+          CURRENT_MONTH="$(date +%Y-%m)"
+          MARKER_FILE="docs/latest/last_sent_month.txt"
+          LAST_SENT=""
+          if [ -f "${MARKER_FILE}" ]; then
+            LAST_SENT="$(tr -d '[:space:]' < "${MARKER_FILE}")"
+          fi
+
+          if [ "${LAST_SENT}" = "${CURRENT_MONTH}" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Monthly report already sent for ${CURRENT_MONTH}. Marker=${MARKER_FILE}."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "No marker for ${CURRENT_MONTH}. Continue."
+          fi
+
+      - name: Skip duplicate monthly attempt
+        if: ${{ steps.schedule_guard.outputs.run == 'true' && steps.monthly_lock.outputs.run != 'true' }}
+        run: |
+          echo "Skipping retry attempt because this month is already marked as sent."
+
+      - name: Setup Python
+        if: ${{ steps.schedule_guard.outputs.run == 'true' && steps.monthly_lock.outputs.run == 'true' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
-        if: ${{ steps.schedule_guard.outputs.run == 'true' }}
+        if: ${{ steps.schedule_guard.outputs.run == 'true' && steps.monthly_lock.outputs.run == 'true' }}
         run: |
           python -m pip install --upgrade pip
           python -m pip install openpyxl xlwt
 
       - name: Validate required secrets
-        if: ${{ steps.schedule_guard.outputs.run == 'true' }}
+        if: ${{ steps.schedule_guard.outputs.run == 'true' && steps.monthly_lock.outputs.run == 'true' }}
         run: |
           if [ -z "${EXPORT_USER}" ] || [ -z "${EXPORT_PASS}" ] || [ -z "${EXPORT_BASE_URL}" ]; then
             echo "Missing one or more required secrets: EXPORT_USER, EXPORT_PASS, EXPORT_BASE_URL."
             exit 1
           fi
+          if [ -z "${SMTP_USER}" ] || [ -z "${SMTP_PASS}" ] || [ -z "${MAIL_FROM}" ] || [ -z "${MAIL_TO}" ]; then
+            echo "Missing one or more required mail secrets: SMTP_USER, SMTP_PASS, MAIL_FROM, MAIL_TO."
+            exit 1
+          fi
 
       - name: Run export
-        if: ${{ steps.schedule_guard.outputs.run == 'true' }}
+        if: ${{ steps.schedule_guard.outputs.run == 'true' && steps.monthly_lock.outputs.run == 'true' }}
         run: |
           VIEW="${EXPORT_VIEW:-all}"
           MAX_ORDERS="${EXPORT_MAX_ORDERS:-0}"
@@ -127,31 +166,14 @@ jobs:
             --xls-output report_latest.xls
 
       - name: Publish latest XLS to Pages folder
-        if: ${{ steps.schedule_guard.outputs.run == 'true' }}
+        if: ${{ steps.schedule_guard.outputs.run == 'true' && steps.monthly_lock.outputs.run == 'true' }}
         run: |
           mkdir -p docs/latest
           cp report_latest.xls docs/latest/report_latest.xls
           date -u +"%Y-%m-%dT%H:%M:%SZ" > docs/latest/last_updated_utc.txt
 
-      - name: Commit latest XLS (if changed)
-        id: publish
-        if: ${{ steps.schedule_guard.outputs.run == 'true' }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f docs/latest/report_latest.xls docs/latest/last_updated_utc.txt
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            git commit -m "Update latest report [skip ci]"
-            git push origin main
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Send email notification (Gmail SMTP)
-        if: ${{ steps.schedule_guard.outputs.run == 'true' && success() && env.SMTP_USER != '' && env.SMTP_PASS != '' && env.MAIL_FROM != '' && env.MAIL_TO != '' }}
-        continue-on-error: true
+        if: ${{ steps.schedule_guard.outputs.run == 'true' && steps.monthly_lock.outputs.run == 'true' && success() && env.SMTP_USER != '' && env.SMTP_PASS != '' && env.MAIL_FROM != '' && env.MAIL_TO != '' }}
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -233,8 +255,36 @@ jobs:
               smtp.send_message(msg)
           PY
 
+      - name: Mark month as sent (scheduled runs only)
+        if: ${{ steps.schedule_guard.outputs.run == 'true' && steps.monthly_lock.outputs.run == 'true' && github.event_name == 'schedule' }}
+        env:
+          TZ: Europe/Stockholm
+        run: |
+          mkdir -p docs/latest
+          date +"%Y-%m" > docs/latest/last_sent_month.txt
+
+      - name: Commit latest XLS and marker (if changed)
+        id: publish
+        if: ${{ steps.schedule_guard.outputs.run == 'true' && steps.monthly_lock.outputs.run == 'true' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          FILES_TO_ADD="docs/latest/report_latest.xls docs/latest/last_updated_utc.txt"
+          if [ -f "docs/latest/last_sent_month.txt" ]; then
+            FILES_TO_ADD="${FILES_TO_ADD} docs/latest/last_sent_month.txt"
+          fi
+          git add -f ${FILES_TO_ADD}
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "Update latest report [skip ci]"
+            git push origin main
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload artifacts
-        if: ${{ steps.schedule_guard.outputs.run == 'true' }}
+        if: ${{ steps.schedule_guard.outputs.run == 'true' && steps.monthly_lock.outputs.run == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: data-export-${{ github.run_number }}

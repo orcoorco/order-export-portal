@@ -37,6 +37,8 @@ Miljövariabler:
 
 Workflow:
 - `.github/workflows/data-export.yml`
+- schemalagt sista tisdagen varje månad kl. 08:05 och 08:25 (Europe/Stockholm)
+- inbyggd månadslåsning (`docs/latest/last_sent_month.txt`) för att undvika dubbelskick
 
 Setup-guide:
 - `GITHUB_ACTIONS_SETUP.md`
